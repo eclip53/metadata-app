@@ -25,7 +25,12 @@ with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
 
 
 vision_client = vision.ImageAnnotatorClient()
-kw_model = KeyBERT(SentenceTransformer("all-MiniLM-L6-v2", device="cpu"))
+import torch
+torch_device = "cpu"
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=torch_device)
+
+# 👇 Use it in KeyBERT
+kw_model = KeyBERT(model=embedding_model)
 # Clean OCR 
 
 def normalize_headings(line):
