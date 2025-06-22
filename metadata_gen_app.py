@@ -25,11 +25,10 @@ with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
 
 
 vision_client = vision.ImageAnnotatorClient()
-import torch
-torch_device = "cpu"
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=torch_device)
+# ✅ Load model without device override
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# 👇 Use it in KeyBERT
+# ✅ Initialize KeyBERT
 kw_model = KeyBERT(model=embedding_model)
 # Clean OCR 
 
