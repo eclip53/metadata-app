@@ -14,12 +14,19 @@ from google.cloud import vision
 import langdetect
 import wordninja
 import yake
-
 import streamlit as st
 
 # Load credentials from Streamlit secrets
-with open("/mount/src/metadata-app/.streamlit/gcp_credentials.json") as f:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/mount/src/metadata-app/.streamlit/gcp_credentials.json"
+if "GOOGLE_APPLICATION_CREDENTIALS" in st.secrets:
+    service_account_info = json.loads(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"])
+    temp_path = "/tmp/gcp_key.json"
+    with open(temp_path, "w") as f:
+        json.dump(service_account_info, f)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
+else:
+    st.error("❌ GOOGLE_APPLICATION_CREDENTIALS not found in secrets.toml")
+
+# ✅ Initialize Vision API client
 vision_client = vision.ImageAnnotatorClient()
 
 def clean_ocr_text(text):
