@@ -28,60 +28,41 @@ else:
 # ✅ Initialize Vision API client
 vision_client = vision.ImageAnnotatorClient()
 
-def merge_heavily_spaced_uppercase(line):
-    tokens = line.split()
-    single_char_tokens = sum(1 for token in tokens if len(token) == 1 and token.isupper())
-    if len(tokens) > 4 and single_char_tokens / len(tokens) > 0.7:
-        return "".join(tokens)
-    return line
 
 def clean_ocr_text(text):
     cleaned_lines = []
-
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
 
-        # Step 1: Merge overly spaced uppercase lines like "P L A C E M E N T"
-        line = merge_heavily_spaced_uppercase(line)
+        # Fix all-uppercase spaced letters (e.g. P L A C E M E N T)
+        if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
+            cleaned_lines.append(line.replace(" ", ""))
+            continue
 
-        # Step 2: Split jammed long words (not URLs/emails)
+        # Fix CamelCase joins → add space between lowercase and uppercase (e.g. placementCell → placement Cell)
+        line = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', line)
+
+        # Add space between digits and letters
+        line = re.sub(r'(?<=\d)(?=[A-Za-z])', ' ', line)
+        line = re.sub(r'(?<=[A-Za-z])(?=\d)', ' ', line)
+
+        # Fix overly long jammed words using wordninja (e.g. recommendedto → recommended to)
         tokens = []
         for word in line.split():
-            if (
-                len(word) > 14 and
-                not re.match(r"^[\w\.-]+@[\w\.-]+$", word) and
-                not re.match(r"^(https?://|www\.)", word)
-            ):
+            if len(word) > 14 and not re.match(r"^[\w\.-]+@[\w\.-]+$", word):
                 tokens.extend(wordninja.split(word))
             else:
                 tokens.append(word)
         line = " ".join(tokens)
 
-        # Step 3: Fix common OCR join issues
-        line = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", line)
-        line = re.sub(r"(?<=[A-Za-z])(?=\d)", " ", line)
-        line = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", line)
-        line = re.sub(r"(\w)\s{1,2}([a-z]{2,})", r"\1\2", line)
+        # Normalize multiple spaces
+        line = re.sub(r'\s{2,}', ' ', line)
 
-        cleaned_lines.append(line.strip())
+        cleaned_lines.append(line)
 
-    # Step 4: Merge numeric section headings like "0" + "1 Introduction"
-    final_lines = []
-    i = 0
-    while i < len(cleaned_lines):
-        current = cleaned_lines[i]
-        if i + 1 < len(cleaned_lines):
-            next_line = cleaned_lines[i + 1]
-            if re.fullmatch(r"\d", current) and re.match(r"^\d?\s?[A-Z]", next_line):
-                final_lines.append(current + " " + next_line)
-                i += 2
-                continue
-        final_lines.append(current)
-        i += 1
-
-    return "\n".join(final_lines)
+    return "\n".join(cleaned_lines)
 
 
 
