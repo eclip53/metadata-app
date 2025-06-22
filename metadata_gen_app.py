@@ -17,17 +17,13 @@ from pdf2image import convert_from_bytes
 # Setup Cloud Vision Client
 
 import tempfile
-key_content = st.secrets["GOOGLE_APPLICATION_CREDENTIALS"]
-
 with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
-    tmp.write(key_content.encode())
-    tmp_path = tmp.name
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_path
-
+    tmp.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"].encode())
+    tmp.flush()
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
 
 vision_client = vision.ImageAnnotatorClient()
-kw_model = KeyBERT()
+kw_model = KeyBERT("all-MiniLM-L6-v2")
 
 # Clean OCR 
 
