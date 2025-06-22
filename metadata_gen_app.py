@@ -31,72 +31,39 @@ vision_client = vision.ImageAnnotatorClient()
 
 def clean_ocr_text(text):
     cleaned_lines = []
-
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
 
-        # Fix all-uppercase spaced letters (e.g., P L A C E M E N T → PLACEMENT)
+        # Fix all-uppercase spaced letters (e.g. P L A C E M E N T)
         if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
             cleaned_lines.append(line.replace(" ", ""))
             continue
 
-        # Fix sequences like D e s i g n a n d → Design and
-        if re.search(r"(?:\b\w\s){2,}", line):
-            tokens = line.split()
-            merged = []
-            buffer = []
-            for token in tokens:
-                if len(token) == 1:
-                    buffer.append(token)
-                else:
-                    if buffer:
-                        merged.append("".join(buffer))
-                        buffer = []
-                    merged.append(token)
-            if buffer:
-                merged.append("".join(buffer))
-            line = " ".join(merged)
+        # Fix CamelCase joins → add space between lowercase and uppercase (e.g. placementCell → placement Cell)
+        line = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', line)
 
-        # Fix overly joined words (Designandimplement → Design and implement)
+        # Add space between digits and letters
+        line = re.sub(r'(?<=\d)(?=[A-Za-z])', ' ', line)
+        line = re.sub(r'(?<=[A-Za-z])(?=\d)', ' ', line)
+
+        # Fix overly long jammed words using wordninja (e.g. recommendedto → recommended to)
         tokens = []
         for word in line.split():
-            if (
-                len(word) > 14 and
-                not re.match(r"^[\w\.-]+@[\w\.-]+$", word) and
-                not re.match(r"^(https?://|www\.)", word)
-            ):
+            if len(word) > 14 and not re.match(r"^[\w\.-]+@[\w\.-]+$", word):
                 tokens.extend(wordninja.split(word))
             else:
                 tokens.append(word)
         line = " ".join(tokens)
 
-        # Add spaces between camel case (like machineLearning → machine Learning)
-        line = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", line)
-        line = re.sub(r"(?<=[A-Za-z])(?=\d)", " ", line)
-        line = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", line)
+        # Normalize multiple spaces
+        line = re.sub(r'\s{2,}', ' ', line)
 
-        # Fix wrongly separated lowercase: "should not be" → correct
-        line = re.sub(r"(\w)\s{1,2}([a-z]{2,})", r"\1\2", line)
+        cleaned_lines.append(line)
 
-        cleaned_lines.append(line.strip())
+    return "\n".join(cleaned_lines)
 
-    # Merge broken header lines like: 0\n3 Placement Team → 03 Placement Team
-    final_lines = []
-    i = 0
-    while i < len(cleaned_lines):
-        current = cleaned_lines[i]
-        if i + 1 < len(cleaned_lines):
-            next_line = cleaned_lines[i + 1]
-            if re.fullmatch(r"\d", current) and re.match(r"^\d?\s?[A-Z]", next_line):
-                final_lines.append(current + " " + next_line)
-                i += 2
-                continue
-        final_lines.append(current)
-        i += 1
-
-    return "\n".join(final_lines)
 
 
 def extract_text_from_image(img):
