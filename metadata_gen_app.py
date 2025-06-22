@@ -31,15 +31,18 @@ vision_client = vision.ImageAnnotatorClient()
 
 def clean_ocr_text(text):
     cleaned_lines = []
+
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
 
+        # Fix all-uppercase spaced letters (e.g., P L A C E M E N T → PLACEMENT)
         if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
             cleaned_lines.append(line.replace(" ", ""))
             continue
 
+        # Fix sequences like D e s i g n a n d → Design and
         if re.search(r"(?:\b\w\s){2,}", line):
             tokens = line.split()
             merged = []
@@ -56,6 +59,7 @@ def clean_ocr_text(text):
                 merged.append("".join(buffer))
             line = " ".join(merged)
 
+        # Fix overly joined words (Designandimplement → Design and implement)
         tokens = []
         for word in line.split():
             if (
@@ -68,13 +72,17 @@ def clean_ocr_text(text):
                 tokens.append(word)
         line = " ".join(tokens)
 
+        # Add spaces between camel case (like machineLearning → machine Learning)
         line = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", line)
         line = re.sub(r"(?<=[A-Za-z])(?=\d)", " ", line)
         line = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", line)
+
+        # Fix wrongly separated lowercase: "should not be" → correct
         line = re.sub(r"(\w)\s{1,2}([a-z]{2,})", r"\1\2", line)
 
         cleaned_lines.append(line.strip())
 
+    # Merge broken header lines like: 0\n3 Placement Team → 03 Placement Team
     final_lines = []
     i = 0
     while i < len(cleaned_lines):
@@ -82,13 +90,14 @@ def clean_ocr_text(text):
         if i + 1 < len(cleaned_lines):
             next_line = cleaned_lines[i + 1]
             if re.fullmatch(r"\d", current) and re.match(r"^\d?\s?[A-Z]", next_line):
-                final_lines.append(current + next_line)
+                final_lines.append(current + " " + next_line)
                 i += 2
                 continue
         final_lines.append(current)
         i += 1
 
     return "\n".join(final_lines)
+
 
 def extract_text_from_image(img):
     buffered = io.BytesIO()
