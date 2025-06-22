@@ -4,6 +4,6 @@ PyPDF2
 python-docx
 pdf2image
 google-cloud-vision
-keybert
 langdetect
 wordninja
+yake
