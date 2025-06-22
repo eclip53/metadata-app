@@ -1,41 +1,26 @@
+# 📄 Streamlit Metadata Extraction App (YAKE Version)
+
 import os
 import io
 import json
 import re
 from datetime import datetime
-from pdf2image import convert_from_bytes
-import streamlit as st
+
+from PIL import Image
 from PyPDF2 import PdfReader
 from docx import Document
-from PIL import Image
+from pdf2image import convert_from_bytes
 from google.cloud import vision
-from keybert import KeyBERT
 import langdetect
 import wordninja
-from pdf2image import convert_from_bytes
-from sentence_transformers import SentenceTransformer
+import yake
 
-# Setup Cloud Vision Client
+import streamlit as st
 
-import tempfile
-with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
-    tmp.write(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"].encode())
-    tmp.flush()
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
-
-
+# Load credentials from Streamlit secrets
+with open("/mount/src/metadata-app/.streamlit/gcp_credentials.json") as f:
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/mount/src/metadata-app/.streamlit/gcp_credentials.json"
 vision_client = vision.ImageAnnotatorClient()
-# ✅ Load model without device override
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-# ✅ Initialize KeyBERT
-kw_model = KeyBERT(model=embedding_model)
-# Clean OCR 
-
-def normalize_headings(line):
-    if line.isupper() and len(line.split()) < 6:
-        return line.title()
-    return line
 
 def clean_ocr_text(text):
     cleaned_lines = []
@@ -44,6 +29,26 @@ def clean_ocr_text(text):
         if not line:
             continue
 
+        if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
+            cleaned_lines.append(line.replace(" ", ""))
+            continue
+
+        if re.search(r"(?:\b\w\s){2,}", line):
+            tokens = line.split()
+            merged = []
+            buffer = []
+            for token in tokens:
+                if len(token) == 1:
+                    buffer.append(token)
+                else:
+                    if buffer:
+                        merged.append("".join(buffer))
+                        buffer = []
+                    merged.append(token)
+            if buffer:
+                merged.append("".join(buffer))
+            line = " ".join(merged)
+
         tokens = []
         for word in line.split():
             if (
@@ -51,17 +56,32 @@ def clean_ocr_text(text):
                 not re.match(r"^[\w\.-]+@[\w\.-]+$", word) and
                 not re.match(r"^(https?://|www\.)", word)
             ):
-                split = wordninja.split(word)
-                tokens.extend(split)
+                tokens.extend(wordninja.split(word))
             else:
                 tokens.append(word)
         line = " ".join(tokens)
 
-        cleaned_lines.append(line)
-    return "\n".join(cleaned_lines)
+        line = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", line)
+        line = re.sub(r"(?<=[A-Za-z])(?=\d)", " ", line)
+        line = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", line)
+        line = re.sub(r"(\w)\s{1,2}([a-z]{2,})", r"\1\2", line)
 
-# OCR Extraction
+        cleaned_lines.append(line.strip())
 
+    final_lines = []
+    i = 0
+    while i < len(cleaned_lines):
+        current = cleaned_lines[i]
+        if i + 1 < len(cleaned_lines):
+            next_line = cleaned_lines[i + 1]
+            if re.fullmatch(r"\d", current) and re.match(r"^\d?\s?[A-Z]", next_line):
+                final_lines.append(current + next_line)
+                i += 2
+                continue
+        final_lines.append(current)
+        i += 1
+
+    return "\n".join(final_lines)
 
 def extract_text_from_image(img):
     buffered = io.BytesIO()
@@ -69,44 +89,25 @@ def extract_text_from_image(img):
     image_bytes = buffered.getvalue()
     image = vision.Image(content=image_bytes)
     response = vision_client.document_text_detection(image=image)
-
     if response.error.message:
         raise Exception(f"Vision API Error: {response.error.message}")
-
     return response.full_text_annotation.text
 
-def extract_text_from_pdf(uploaded_file):
+def extract_text_from_pdf(file):
     try:
-        # Try extracting text using PyPDF2
-        reader = PdfReader(uploaded_file)
-        raw_text = ""
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                raw_text += text + "\n"
-
-        if raw_text.strip():
-            return raw_text
-        else:
-            raise ValueError("Empty text from PDF. Falling back to OCR.")
-
-    except Exception as e:
-        try:
-            # Rewind file pointer for OCR
-            uploaded_file.seek(0)
-            images = convert_from_bytes(uploaded_file.read())
-            ocr_text = ""
-            for img in images:
-                ocr_text += extract_text_from_image(img) + "\n"
-            return ocr_text
-        except Exception as ocr_error:
-            raise Exception(f"PDF read failed: {str(e)} | OCR fallback failed: {str(ocr_error)}")
-
-
+        reader = PdfReader(file)
+        text = "\n".join([p.extract_text() or "" for p in reader.pages])
+        if text.strip():
+            return text
+        raise ValueError("No text found")
+    except:
+        file.seek(0)
+        images = convert_from_bytes(file.read())
+        return "\n".join([extract_text_from_image(img) for img in images])
 
 def extract_text_from_docx(file):
     doc = Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
+    return "\n".join(para.text for para in doc.paragraphs)
 
 def extract_text(uploaded_file):
     if uploaded_file.type == "application/pdf":
@@ -114,37 +115,32 @@ def extract_text(uploaded_file):
     elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         return extract_text_from_docx(uploaded_file)
     elif uploaded_file.type.startswith("image/"):
-        image = Image.open(uploaded_file)
-        return extract_text_from_image(image)
+        return extract_text_from_image(Image.open(uploaded_file))
     else:
-        return "Unsupported file type."
+        raise ValueError("Unsupported file type")
 
+def generate_metadata(text, filename="unknown.txt"):
+    kw_extractor = yake.KeywordExtractor(top=20, stopwords=None)
+    keyword_results = kw_extractor.extract_keywords(text)
 
-# Metadata Extraction
+    keyword_list = [kw for kw, _ in keyword_results if len(kw.split()) == 1][:10]
+    keyphrase_list = [kw for kw, _ in keyword_results if len(kw.split()) > 1][:10]
 
-def generate_metadata(text, filename="unknown_file.txt"):
-    # Extract keywords and keyphrases
-    keyword_list = [kw for kw, _ in kw_model.extract_keywords(text, keyphrase_ngram_range=(1, 1), stop_words='english', top_n=10)]
-    keyphrase_list = [kp for kp, _ in kw_model.extract_keywords(text, keyphrase_ngram_range=(2, 4), stop_words='english', top_n=10)]
-
-    # Language detection
     try:
         language = langdetect.detect(text)
     except:
         language = "unknown"
 
-    # Attempt to extract a smart title and summary
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
     title = "Untitled Document"
     summary = "No summary available"
-
     for i, line in enumerate(lines):
         if len(line.split()) > 3 and not line.isupper():
             title = line
             summary = lines[i+1] if i+1 < len(lines) else summary
             break
 
-    word_count = len(re.findall(r'\w+', text))
+    word_count = len(re.findall(r"\w+", text))
 
     return {
         "filename": filename,
@@ -157,11 +153,11 @@ def generate_metadata(text, filename="unknown_file.txt"):
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
 
-
-# Streamlit UI
+## 🚀 6. Streamlit UI
 
 st.set_page_config(page_title="Automated Meta Data Generator", layout="wide")
-st.title("📄 Automated Metadata Generator (Vision OCR)")
+st.title("📄 Automated Metadata Generator (Vision OCR + YAKE)")
+
 uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "png", "jpg", "jpeg"])
 
 if uploaded_file:
@@ -171,16 +167,15 @@ if uploaded_file:
             cleaned_text = clean_ocr_text(raw_text)
             metadata = generate_metadata(cleaned_text, filename=uploaded_file.name)
 
-            st.subheader("📃 Extracted Text")
-            st.text_area("Full Text", cleaned_text, height=300)
-
-            st.subheader("🧠 Metadata (JSON Format)")
-            metadata_json = json.dumps(metadata, indent=4)
-            st.code(metadata_json, language='json')
+            tab1, tab2 = st.tabs(["📃 Extracted Text", "🧠 Metadata"])
+            with tab1:
+                st.text_area("Full Text", cleaned_text, height=300)
+            with tab2:
+                st.json(metadata)
 
             st.download_button(
                 label="📥 Download Metadata as JSON",
-                data=metadata_json,
+                data=json.dumps(metadata, indent=4),
                 file_name="metadata.json",
                 mime="application/json"
             )
