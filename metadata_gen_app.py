@@ -177,7 +177,7 @@ def enhance_with_llm(text, metadata):
 
 # UI starts here
 st.set_page_config(page_title="Automated Meta Data Generator", layout="wide")
-st.title("📄 Automated Metadata Generator (Vision OCR + YAKE + LLM Optional)")
+st.title("📄 Automated Metadata Generator (Vision OCR + NLP + Hugging Face LLM)")
 
 enhance_llm = True
 
