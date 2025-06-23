@@ -1,4 +1,4 @@
-# 📄 Streamlit Metadata Extraction App (YAKE Version)
+# 📄 Streamlit Metadata Extraction App (YAKE + LLM Option)
 
 import os
 import io
@@ -14,6 +14,7 @@ import langdetect
 import wordninja
 import yake
 import streamlit as st
+import requests
 
 # Load credentials from Streamlit secrets
 if "GOOGLE_APPLICATION_CREDENTIALS" in st.secrets:
@@ -23,32 +24,35 @@ if "GOOGLE_APPLICATION_CREDENTIALS" in st.secrets:
         json.dump(service_account_info, f)
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
 else:
-    st.error("❌ GOOGLE_APPLICATION_CREDENTIALS not found in secrets.toml")
+    st.error("GOOGLE_APPLICATION_CREDENTIALS not found in secrets.toml")
 
-# ✅ Initialize Vision API client
+# Initialize Vision API client
 vision_client = vision.ImageAnnotatorClient()
 
+# Optional LLM setup
+HF_API_KEY = st.secrets.get("HF_API_KEY", None)
 
 def clean_ocr_text(text):
+    """Apply spacing corrections and token cleanups on OCR/poor text."""
     cleaned_lines = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
 
-        # Fix all-uppercase spaced letters (e.g. P L A C E M E N T)
+        # Fix all-uppercase spaced letters 
         if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
             cleaned_lines.append(line.replace(" ", ""))
             continue
 
-        # Fix CamelCase joins → add space between lowercase and uppercase (e.g. placementCell → placement Cell)
+        # Fix CamelCase joins 
         line = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', line)
 
         # Add space between digits and letters
         line = re.sub(r'(?<=\d)(?=[A-Za-z])', ' ', line)
         line = re.sub(r'(?<=[A-Za-z])(?=\d)', ' ', line)
 
-        # Fix overly long jammed words using wordninja (e.g. recommendedto → recommended to)
+        # Fix overly long jammed words using wordninja 
         tokens = []
         for word in line.split():
             if len(word) > 14 and not re.match(r"^[\w\.-]+@[\w\.-]+$", word):
@@ -64,9 +68,8 @@ def clean_ocr_text(text):
 
     return "\n".join(cleaned_lines)
 
-
-
 def extract_text_from_image(img):
+    """Extract text using Google Cloud Vision from an image."""
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     image_bytes = buffered.getvalue()
@@ -77,6 +80,7 @@ def extract_text_from_image(img):
     return response.full_text_annotation.text
 
 def extract_text_from_pdf(file):
+    """Extract text from PDF using PyPDF2 or fallback to OCR."""
     try:
         reader = PdfReader(file)
         text = "\n".join([p.extract_text() or "" for p in reader.pages])
@@ -89,10 +93,12 @@ def extract_text_from_pdf(file):
         return "\n".join([extract_text_from_image(img) for img in images])
 
 def extract_text_from_docx(file):
+    """Extract text from Word DOCX file."""
     doc = Document(file)
     return "\n".join(para.text for para in doc.paragraphs)
 
 def extract_text(uploaded_file):
+    """Route to correct file parser based on type."""
     if uploaded_file.type == "application/pdf":
         return extract_text_from_pdf(uploaded_file)
     elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
@@ -103,6 +109,7 @@ def extract_text(uploaded_file):
         raise ValueError("Unsupported file type")
 
 def generate_metadata(text, filename="unknown.txt"):
+    """Generate metadata using YAKE and optionally enhance with LLM."""
     kw_extractor = yake.KeywordExtractor(top=20, stopwords=None)
     keyword_results = kw_extractor.extract_keywords(text)
 
@@ -125,7 +132,7 @@ def generate_metadata(text, filename="unknown.txt"):
 
     word_count = len(re.findall(r"\w+", text))
 
-    return {
+    metadata = {
         "filename": filename,
         "title": title,
         "summary": summary,
@@ -136,10 +143,32 @@ def generate_metadata(text, filename="unknown.txt"):
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
 
-## 🚀 6. Streamlit UI
+    if HF_API_KEY and enhance_llm:
+        metadata = enhance_with_llm(text, metadata)
 
+    return metadata
+
+def enhance_with_llm(text, metadata):
+    """Use Hugging Face Inference API to improve title/summary."""
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+    def hf_generate(prompt, model="mistralai/Mixtral-8x7B-Instruct-v0.1"):
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        response = requests.post(url, headers=headers, json={"inputs": prompt})
+        try:
+            return response.json()[0]['generated_text'].split("\n")[0]
+        except:
+            return ""
+
+    metadata["title"] = hf_generate(f"Give a short title for the following document:\n{text[:1000]}")
+    metadata["summary"] = hf_generate(f"Summarize the following document in 3 lines:\n{text[:1500]}")
+    return metadata
+
+# UI starts here
 st.set_page_config(page_title="Automated Meta Data Generator", layout="wide")
-st.title("📄 Automated Metadata Generator (Vision OCR + YAKE)")
+st.title("📄 Automated Metadata Generator (Vision OCR + YAKE + LLM Optional)")
+
+enhance_llm = st.checkbox("🧠 Enhance metadata using LLM (if API key set)", value=False)
 
 uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "png", "jpg", "jpeg"])
 
@@ -164,5 +193,3 @@ if uploaded_file:
             )
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
-
-
