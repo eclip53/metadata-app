@@ -42,8 +42,10 @@ def clean_ocr_text(text):
 
         # Fix all-uppercase spaced letters 
         if re.fullmatch(r"(?:[A-Z]\s*){3,}", line):
-            cleaned_lines.append(line.replace(" ", ""))
+            fixed = " ".join(line.split())
+            cleaned_lines.append(fixed)
             continue
+
 
         # Fix CamelCase joins 
         line = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', line)
@@ -55,11 +57,20 @@ def clean_ocr_text(text):
         # Fix overly long jammed words using wordninja 
         tokens = []
         for word in line.split():
-            if len(word) > 14 and not re.match(r"^[\w\.-]+@[\w\.-]+$", word):
-                tokens.extend(wordninja.split(word))
-            else:
-                tokens.append(word)
-        line = " ".join(tokens)
+          
+          if (
+        re.match(r"https?://\S+", word) or
+        re.match(r"www\.\S+", word) or
+        re.match(r"^[\w\.-]+@[\w\.-]+$", word)
+    ):
+              
+            tokens.append(word)  # preserve as-is
+          elif len(word) > 14:
+              
+            tokens.extend(wordninja.split(word))
+          else:
+            tokens.append(word)
+
 
         # Normalize multiple spaces
         line = re.sub(r'\s{2,}', ' ', line)
@@ -168,7 +179,7 @@ def enhance_with_llm(text, metadata):
 st.set_page_config(page_title="Automated Meta Data Generator", layout="wide")
 st.title("📄 Automated Metadata Generator (Vision OCR + YAKE + LLM Optional)")
 
-enhance_llm = st.checkbox("🧠 Enhance metadata using LLM (if API key set)", value=False)
+enhance_llm = True
 
 uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "png", "jpg", "jpeg"])
 
