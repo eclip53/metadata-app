@@ -31,6 +31,7 @@ vision_client = vision.ImageAnnotatorClient()
 
 # LLM setup
 HF_API_KEY = st.secrets.get("HF_API_KEY", None)
+enhance_llm = True
 
 def clean_ocr_text(text):
     """Apply spacing corrections and token cleanups on OCR/poor text."""
@@ -194,7 +195,7 @@ def enhance_with_llm(text, metadata):
 st.set_page_config(page_title="Automated Meta Data Generator", layout="wide")
 st.title("📄 Automated Metadata Generator (Vision OCR + NLP + Hugging Face LLM)")
 
-enhance_llm = True
+
 
 uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "png", "jpg", "jpeg"])
 
