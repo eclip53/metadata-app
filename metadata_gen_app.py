@@ -134,14 +134,26 @@ def generate_metadata(text, filename="unknown.txt"):
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    title = "Untitled Document"
-    summary = "No summary available"
-    for i, line in enumerate(lines):
-     if len(line.strip()) > 10 and re.search(r'[a-zA-Z]', line):
-        title = line.strip()
-        summary = lines[i+1].strip() if i+1 < len(lines) else summary
-        break
+    title = ""
+    summary = ""
 
+    # Try to find a meaningful line for title (even ALL CAPS or short)
+    for i, line in enumerate(lines):
+        line_clean = line.strip()
+        if len(line_clean.split()) >= 2 and re.search(r"[A-Za-z]", line_clean):
+            title = line_clean
+            # Try using the next non-empty line as summary
+            for j in range(i + 1, len(lines)):
+                if len(lines[j].strip()) >= 5:
+                    summary = lines[j].strip()
+                    break
+            break
+
+    # Fallback defaults if nothing found
+    if not title:
+        title = "Untitled Document"
+    if not summary:
+        summary = "No summary available"
 
 
     word_count = len(re.findall(r"\w+", text))
