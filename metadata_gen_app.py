@@ -133,17 +133,15 @@ def generate_metadata(text, filename="unknown.txt"):
         language = "unknown"
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]
+
     title = "Untitled Document"
     summary = "No summary available"
-
     for i, line in enumerate(lines):
-        if len(line.split()) > 2:
-            title = line
-            for j in range(i+1, len(lines)):
-                if len(lines[j].split()) > 3:
-                    summary = lines[j]
-                    break
-            break
+     if len(line.strip()) > 10 and re.search(r'[a-zA-Z]', line):
+        title = line.strip()
+        summary = lines[i+1].strip() if i+1 < len(lines) else summary
+        break
+
 
 
     word_count = len(re.findall(r"\w+", text))
