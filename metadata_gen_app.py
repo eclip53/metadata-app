@@ -29,7 +29,7 @@ else:
 # Initialize Vision API client
 vision_client = vision.ImageAnnotatorClient()
 
-# Optional LLM setup
+# LLM setup
 HF_API_KEY = st.secrets.get("HF_API_KEY", None)
 
 def clean_ocr_text(text):
@@ -135,11 +135,16 @@ def generate_metadata(text, filename="unknown.txt"):
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     title = "Untitled Document"
     summary = "No summary available"
+
     for i, line in enumerate(lines):
-        if len(line.split()) > 3 and not line.isupper():
+        if len(line.split()) > 2:
             title = line
-            summary = lines[i+1] if i+1 < len(lines) else summary
+            for j in range(i+1, len(lines)):
+                if len(lines[j].split()) > 3:
+                    summary = lines[j]
+                    break
             break
+
 
     word_count = len(re.findall(r"\w+", text))
 
